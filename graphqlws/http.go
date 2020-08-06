@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -14,6 +15,10 @@ import (
 // ProtocolGraphQLWS is websocket subprotocol ID for GraphQL over WebSocket
 // see https://github.com/apollographql/subscriptions-transport-ws
 const ProtocolGraphQLWS = "graphql-ws"
+
+const (
+	ContextAuthorization = connection.ContextAuthorization
+)
 
 var defaultUpgrader = websocket.Upgrader{
 	CheckOrigin:  func(r *http.Request) bool { return true },
@@ -137,9 +142,15 @@ func (h *handler) NewHandlerFunc(svc connection.GraphQLService, httpHandler http
 			return
 		}
 
+		ctx := r.Context()
+
+		if parts := strings.Fields(r.Header.Get("Authorization")); len(parts) == 2 && parts[0] == "Bearer" {
+			ctx = context.WithValue(ctx, ContextAuthorization, parts[1])
+		}
+
 		// Fallback to HTTP
 		w.Header().Set("X-WebSocket-Upgrade-Failure", "no subprotocols available")
-		httpHandler.ServeHTTP(w, r)
+		httpHandler.ServeHTTP(w, r.WithContext(ctx))
 	}
 }
 

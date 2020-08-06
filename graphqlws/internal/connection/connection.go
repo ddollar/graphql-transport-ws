@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -23,6 +24,12 @@ const (
 	typeError               operationMessageType = "error"
 	typeStart               operationMessageType = "start"
 	typeStop                operationMessageType = "stop"
+)
+
+type ContextKey int
+
+const (
+	ContextAuthorization ContextKey = iota
 )
 
 type wsConnection interface {
@@ -48,7 +55,7 @@ type startMessagePayload struct {
 	Variables     map[string]interface{} `json:"variables"`
 }
 
-type initMessagePayload struct{}
+type initMessagePayload interface{}
 
 // GraphQLService interface
 type GraphQLService interface {
@@ -126,7 +133,7 @@ func Connect(ctx context.Context, ws wsConnection, service GraphQLService, optio
 		opt(conn)
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(context.Background())
 	conn.cancel = cancel
 	conn.readLoop(ctx, conn.writeLoop(ctx))
 
@@ -269,6 +276,16 @@ func (conn *connection) readLoop(ctx context.Context, send sendFunc) {
 				ep := errPayload(fmt.Errorf("invalid payload for type: %s", msg.Type))
 				send("", typeConnectionError, ep)
 				continue
+			}
+			switch t := initMsg.(type) {
+			case map[string]interface{}:
+				if ai, ok := t["Authorization"]; ok {
+					if auth, ok := ai.(string); ok {
+						if parts := strings.Fields(auth); len(parts) == 2 && parts[0] == "Bearer" {
+							ctx = context.WithValue(ctx, ContextAuthorization, parts[1])
+						}
+					}
+				}
 			}
 			send("", typeConnectionAck, nil)
 			header = msg.Payload
